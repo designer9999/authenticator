@@ -1127,6 +1127,7 @@
 		animation: dialogIn var(--m3-default-spatial-dur) var(--m3-default-spatial) both;
 		max-height: calc(100vh - 112px);
 		overflow-y: auto;
+		scrollbar-width: none;
 	}
 
 	@keyframes scrimIn {

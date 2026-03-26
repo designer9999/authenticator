@@ -64,7 +64,7 @@
 		box-shadow: var(--shadow-e3);
 		max-height: calc(100vh - 112px);
 		overflow-y: auto;
-		scrollbar-width: thin;
+		scrollbar-width: none;
 	}
 
 	/* M3 Headline Small = 1.5rem / 400 / 2rem */
