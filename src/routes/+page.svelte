@@ -216,9 +216,37 @@
 		}
 	}
 
+	let updateStatus = $state('');
+
 	async function openSettings() {
 		appInfo = await invoke('get_app_info');
+		updateStatus = '';
 		showSettings = true;
+	}
+
+	const GITHUB_REPO = 'mjau-mjau/authenticator';
+
+	async function checkForUpdates() {
+		updateStatus = 'Checking...';
+		try {
+			const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+			if (!res.ok) {
+				updateStatus = 'Could not reach update server';
+				return;
+			}
+			const data = await res.json();
+			const latest = data.tag_name?.replace(/^v/, '') ?? '';
+			const current = appInfo?.version ?? '';
+			if (!latest) {
+				updateStatus = 'No releases found';
+			} else if (latest === current) {
+				updateStatus = `You're on the latest version (${current})`;
+			} else {
+				updateStatus = `Update available: v${latest}`;
+			}
+		} catch {
+			updateStatus = 'Failed to check for updates';
+		}
 	}
 
 	async function openDataFolder() {
@@ -690,6 +718,23 @@
 						<div class="flex-1 text-left">
 							<div class="text-sm text-on-surface">Change storage location</div>
 							<div class="text-xs text-on-surface-variant">Move accounts to a different folder</div>
+						</div>
+						<span class="material-symbols-outlined text-xl text-on-surface-variant"
+							>chevron_right</span
+						>
+					</button>
+				</div>
+
+				<div class="divider"></div>
+
+				<div class="settings-section">
+					<button class="settings-row settings-row-btn" onclick={checkForUpdates}>
+						<span class="material-symbols-outlined text-2xl text-on-surface-variant">update</span>
+						<div class="flex-1 text-left">
+							<div class="text-sm text-on-surface">Check for updates</div>
+							<div class="text-xs text-on-surface-variant">
+								{updateStatus || `Current: v${appInfo?.version ?? '...'}`}
+							</div>
 						</div>
 						<span class="material-symbols-outlined text-xl text-on-surface-variant"
 							>chevron_right</span
