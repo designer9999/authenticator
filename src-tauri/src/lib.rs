@@ -10,7 +10,10 @@ use tauri::Manager;
 
 type HmacSha1 = Hmac<Sha1>;
 
+/// Forward-compatible: #[serde(default)] ensures old JSON files load
+/// even if future versions add new fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Account {
     pub id: String,
     pub issuer: String,
@@ -18,6 +21,19 @@ pub struct Account {
     pub secret: String,
     pub digits: u32,
     pub period: u32,
+}
+
+impl Default for Account {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            issuer: String::new(),
+            name: String::new(),
+            secret: String::new(),
+            digits: 6,
+            period: 30,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -33,6 +49,7 @@ pub struct AccountCode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct AppConfig {
     custom_data_path: Option<String>,
 }
