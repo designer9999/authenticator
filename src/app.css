@@ -1,0 +1,229 @@
+@import 'tailwindcss';
+
+/* ── Local fonts — fully offline, no CDN ── */
+@font-face {
+	font-family: 'Roboto Flex';
+	src: url('/fonts/RobotoFlex.ttf') format('truetype');
+	font-weight: 100 1000;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Material Symbols Outlined';
+	src: url('/fonts/MaterialSymbolsOutlined.woff2') format('woff2');
+	font-weight: 100 700;
+	font-display: block;
+}
+
+/* ══════════════════════════════════════════════════════════
+   M3 Expressive Design System — Desktop/Web
+   Complete token set from m3.material.io (107+ pages, May 2025)
+   ══════════════════════════════════════════════════════════ */
+
+@theme {
+	/* ── Primary ── */
+	--color-primary: #a0c4ff;
+	--color-on-primary: #003060;
+	--color-primary-container: #004787;
+	--color-on-primary-container: #d1e4ff;
+
+	/* ── Secondary ── */
+	--color-secondary: #bcc7db;
+	--color-on-secondary: #263141;
+	--color-secondary-container: #3d4758;
+	--color-on-secondary-container: #d8e3f8;
+
+	/* ── Tertiary ── */
+	--color-tertiary: #c9a3ff;
+	--color-on-tertiary: #31005a;
+	--color-tertiary-container: #481f80;
+	--color-on-tertiary-container: #e8deff;
+
+	/* ── Error ── */
+	--color-error: #ffb4ab;
+	--color-on-error: #690005;
+	--color-error-container: #93000a;
+	--color-on-error-container: #ffdad6;
+
+	/* ── Surface system ── */
+	--color-surface: #111318;
+	--color-on-surface: #e1e2e9;
+	--color-surface-dim: #111318;
+	--color-surface-bright: #37393e;
+	--color-surface-variant: #43474e;
+	--color-on-surface-variant: #c3c6cf;
+	--color-surface-container-lowest: #0c0e13;
+	--color-surface-container-low: #191c20;
+	--color-surface-container: #1d2024;
+	--color-surface-container-high: #282a2f;
+	--color-surface-container-highest: #32353a;
+
+	/* ── Inverse (snackbar, plain tooltip) ── */
+	--color-inverse-surface: #e1e2e9;
+	--color-inverse-on-surface: #2e3036;
+	--color-inverse-primary: #3b5f90;
+
+	/* ── Outline ── */
+	--color-outline: #8d9199;
+	--color-outline-variant: #43474e;
+
+	/* ── Utility ── */
+	--color-success: #4caf50;
+	--color-scrim: #000000;
+
+	/* ── M3 Shape scale ── */
+	--radius-none: 0px;
+	--radius-xs: 4px;
+	--radius-sm: 8px;
+	--radius-md: 12px;
+	--radius-lg: 16px;
+	--radius-lg-inc: 20px;
+	--radius-xl: 28px;
+	--radius-xl-inc: 32px;
+	--radius-full: 9999px;
+
+	/* ── M3 Elevation (CSS box-shadow) ── */
+	--shadow-e0: none;
+	--shadow-e1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+	--shadow-e2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+	--shadow-e3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+	--shadow-e4: 0 6px 10px 4px rgba(0, 0, 0, 0.15), 0 2px 3px rgba(0, 0, 0, 0.3);
+	--shadow-e5: 0 8px 12px 6px rgba(0, 0, 0, 0.15), 0 4px 4px rgba(0, 0, 0, 0.3);
+
+	/* ── Font ── */
+	--font-sans: 'Roboto Flex', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Material Symbols — local font, base styles ── */
+@layer base {
+	.material-symbols-outlined {
+		font-family: 'Material Symbols Outlined';
+		font-size: inherit;
+		line-height: inherit;
+		font-weight: normal;
+		font-style: normal;
+		display: inline-block;
+		text-transform: none;
+		white-space: nowrap;
+		word-wrap: normal;
+		direction: ltr;
+		-webkit-font-smoothing: antialiased;
+		font-variation-settings:
+			'FILL' 0,
+			'wght' 400,
+			'GRAD' -25,
+			'opsz' 24;
+	}
+}
+
+/* ── Base reset — in @layer base so utilities override it ── */
+@layer base {
+	*,
+	*::before,
+	*::after {
+		margin: 0;
+		padding: 0;
+		box-sizing: border-box;
+	}
+
+	body {
+		background: var(--color-surface);
+		color: var(--color-on-surface);
+		font-family: var(--font-sans);
+		font-size: 1rem;
+		line-height: 1.5;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		overflow: hidden;
+		height: 100vh;
+	}
+
+	/* M3: focus-visible ring on ALL interactive elements */
+	:focus-visible {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+	}
+
+	:focus:not(:focus-visible) {
+		outline: none;
+	}
+}
+
+/* ── M3 Motion (CSS cubic-bezier approximations of spring physics) ── */
+:root {
+	/* Expressive spatial (position, size — CAN overshoot, y > 1.0) */
+	--m3-fast-spatial: cubic-bezier(0.42, 1.67, 0.21, 0.9);
+	--m3-fast-spatial-dur: 350ms;
+	--m3-default-spatial: cubic-bezier(0.38, 1.21, 0.22, 1);
+	--m3-default-spatial-dur: 500ms;
+	--m3-slow-spatial: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+	--m3-slow-spatial-dur: 650ms;
+
+	/* Effects (color, opacity — NO overshoot) */
+	--m3-fast-effects: cubic-bezier(0.31, 0.94, 0.34, 1);
+	--m3-fast-effects-dur: 150ms;
+	--m3-default-effects: cubic-bezier(0.34, 0.8, 0.34, 1);
+	--m3-default-effects-dur: 200ms;
+	--m3-slow-effects: cubic-bezier(0.34, 0.88, 0.34, 1);
+	--m3-slow-effects-dur: 300ms;
+
+	/* Page/route transitions (easing) */
+	--m3-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--m3-emphasized-decel-dur: 400ms;
+	--m3-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+	--m3-emphasized-accel-dur: 200ms;
+	--m3-standard: cubic-bezier(0.2, 0, 0, 1);
+	--m3-standard-dur: 300ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* ══════════════════════════════════════
+   Custom Tailwind @utility definitions
+   ══════════════════════════════════════ */
+
+/* M3 state layers (spec: 8% hover, 10% focus, 10% press) */
+@utility state-hover {
+	background-color: color-mix(in srgb, var(--color-on-surface) 8%, transparent);
+}
+
+@utility state-focus {
+	background-color: color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+}
+
+@utility state-press {
+	background-color: color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+}
+
+/* M3: filled icon for selected states */
+@utility icon-filled {
+	font-variation-settings:
+		'FILL' 1,
+		'wght' 400,
+		'GRAD' -25,
+		'opsz' 24;
+}
+
+/* M3: icon buttons fill on press (FILL 0 → 1) with effects spring */
+@layer base {
+	button .material-symbols-outlined,
+	[role='button'] .material-symbols-outlined {
+		transition: font-variation-settings var(--m3-fast-effects-dur) var(--m3-fast-effects);
+	}
+
+	button:active .material-symbols-outlined,
+	[role='button']:active .material-symbols-outlined {
+		font-variation-settings:
+			'FILL' 1,
+			'wght' 400,
+			'GRAD' -25,
+			'opsz' 24;
+	}
+}
