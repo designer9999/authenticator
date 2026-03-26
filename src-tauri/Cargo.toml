@@ -27,4 +27,5 @@ hmac = "0.12"
 sha1 = "0.10"
 chrono = "0.4"
 tauri-plugin-dialog = "2.6.0"
+rand = "0.8"
 

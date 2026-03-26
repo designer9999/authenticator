@@ -6,11 +6,13 @@ import { invoke } from '@tauri-apps/api/core';
 
 /** @type {AccountCode[]} */
 export let accounts = $state([]);
+
+// Object wrappers for exported $state — Svelte 5 requires objects for
+// module-level reactive exports (primitives lose reactivity across imports)
 export let search = $state({ q: '' });
 export let loading = $state({ on: true });
 export let remaining = $state({ secs: 30 });
 
-/** @type {string|null} track previous codes to detect changes */
 let prevCodes = '';
 let refreshing = false;
 
@@ -30,22 +32,20 @@ export async function refresh() {
 		const newCodes = data.map((d) => d.id + d.code).join(',');
 		if (newCodes !== prevCodes) {
 			prevCodes = newCodes;
-			accounts.length = 0;
-			data.forEach((a) => accounts.push(a));
+			accounts.splice(0, accounts.length, ...data);
 		} else {
-			data.forEach((d, i) => {
-				if (accounts[i]) accounts[i].remaining = d.remaining;
-			});
+			for (let i = 0; i < data.length; i++) {
+				if (accounts[i]) accounts[i].remaining = data[i].remaining;
+			}
 		}
-	} catch (e) {
-		console.error('Failed to load accounts:', e);
+	} catch {
+		// Silently retry on next interval
 	} finally {
 		loading.on = false;
 		refreshing = false;
 	}
 }
 
-/** Force refresh — bypasses the refreshing guard */
 async function forceRefresh() {
 	refreshing = false;
 	prevCodes = '';
@@ -64,13 +64,18 @@ export async function addAccount(issuer, name, secret) {
 
 /** @param {string} id */
 export async function removeAccount(id) {
-	// Remove from local array immediately (optimistic update)
+	const backup = [...accounts];
 	const idx = accounts.findIndex((a) => a.id === id);
 	if (idx !== -1) accounts.splice(idx, 1);
 	prevCodes = '';
 
-	// Then persist to Rust
-	await invoke('remove_account', { id });
+	try {
+		await invoke('remove_account', { id });
+	} catch {
+		// Rollback on failure
+		accounts.splice(0, accounts.length, ...backup);
+		prevCodes = '';
+	}
 }
 
 /**
@@ -84,20 +89,19 @@ export async function editAccount(id, issuer, name, secret) {
 	await forceRefresh();
 }
 
+/** @param {string[]} ids */
+export async function reorderAccounts(ids) {
+	await invoke('reorder_accounts', { ids });
+	await forceRefresh();
+}
+
 /**
- * Bulk import from text (one account per line: name:pass:secret)
  * @param {string} text
- * @returns {Promise<number>} count of imported accounts
+ * @returns {Promise<number>}
  */
 export async function bulkImport(text) {
 	/** @type {number} */
 	const count = await invoke('bulk_import', { text });
 	if (count > 0) await forceRefresh();
 	return count;
-}
-
-/** @param {string[]} ids */
-export async function reorderAccounts(ids) {
-	await invoke('reorder_accounts', { ids });
-	await forceRefresh();
 }

@@ -189,17 +189,8 @@
    Custom Tailwind @utility definitions
    ══════════════════════════════════════ */
 
-/* M3 state layers (spec: 8% hover, 10% focus, 10% press) */
-@utility state-hover {
-	background-color: color-mix(in srgb, var(--color-on-surface) 8%, transparent);
-}
-
-@utility state-focus {
-	background-color: color-mix(in srgb, var(--color-on-surface) 10%, transparent);
-}
-
-@utility state-press {
-	background-color: color-mix(in srgb, var(--color-on-surface) 10%, transparent);
+@utility thin-scrollbar {
+	scrollbar-width: thin;
 }
 
 /* M3: filled icon for selected states */
@@ -209,21 +200,4 @@
 		'wght' 400,
 		'GRAD' -25,
 		'opsz' 24;
-}
-
-/* M3: icon buttons fill on press (FILL 0 → 1) with effects spring */
-@layer base {
-	button .material-symbols-outlined,
-	[role='button'] .material-symbols-outlined {
-		transition: font-variation-settings var(--m3-fast-effects-dur) var(--m3-fast-effects);
-	}
-
-	button:active .material-symbols-outlined,
-	[role='button']:active .material-symbols-outlined {
-		font-variation-settings:
-			'FILL' 1,
-			'wght' 400,
-			'GRAD' -25,
-			'opsz' 24;
-	}
 }

@@ -59,14 +59,13 @@
 	let editName = $state('');
 	let editSecret = $state('');
 	let copied = $state('');
+	let copiedTimer = 0;
 	let quickIssuerChangeId = $state('');
 	let quickPaste = $state('');
 	let issuer = $state('');
 	let name = $state('');
 	let secret = $state('');
 	let error = $state('');
-	// TODO: dragId for mobile touch reorder
-	// let dragId = $state('');
 
 	/** @type {{ version: string, account_count: number, data_path: string } | null} */
 	let appInfo = $state(null);
@@ -121,7 +120,8 @@
 		try {
 			await navigator.clipboard.writeText(code.replace(/\s/g, ''));
 			copied = id;
-			setTimeout(() => (copied = ''), 2000);
+			clearTimeout(copiedTimer);
+			copiedTimer = setTimeout(() => (copied = ''), 2000);
 		} catch {
 			/* noop */
 		}
@@ -143,11 +143,9 @@
 		if (parts.length >= 3) {
 			name = parts[0].trim();
 			secret = parts.slice(2).join('').trim();
-			issuer = issuer || '';
 		} else if (parts.length === 2) {
 			name = parts[0].trim();
 			secret = parts[1].trim();
-			issuer = issuer || '';
 		} else {
 			secret = val;
 		}
@@ -218,11 +216,6 @@
 		}
 	}
 
-	// TODO: Touch drag-to-reorder for mobile APK
-	// function handleDragStart(e, id) { ... }
-	// function handleDragOver(e) { ... }
-	// function handleDrop(targetId) { ... }
-
 	async function openSettings() {
 		appInfo = await invoke('get_app_info');
 		showSettings = true;
@@ -243,6 +236,7 @@
 	// ── Drag-and-drop file import (Tauri native API) ──
 	let dropActive = $state(false);
 	let importMsg = $state('');
+	let importTimer = 0;
 
 	$effect(() => {
 		const promise = /** @type {any} */ (win).onDragDropEvent(
@@ -275,10 +269,12 @@
 			const count = await bulkImport(text);
 			importMsg =
 				count > 0 ? `Imported ${count} account${count > 1 ? 's' : ''}` : 'No valid accounts found';
-			setTimeout(() => (importMsg = ''), 3000);
+			clearTimeout(importTimer);
+			importTimer = setTimeout(() => (importMsg = ''), 3000);
 		} catch {
 			importMsg = 'Failed to read file';
-			setTimeout(() => (importMsg = ''), 3000);
+			clearTimeout(importTimer);
+			importTimer = setTimeout(() => (importMsg = ''), 3000);
 		}
 	}
 
@@ -293,7 +289,8 @@
 		const count = await bulkImport(text);
 		importMsg =
 			count > 0 ? `Imported ${count} account${count > 1 ? 's' : ''}` : 'No valid accounts found';
-		setTimeout(() => (importMsg = ''), 3000);
+		clearTimeout(importTimer);
+		importTimer = setTimeout(() => (importMsg = ''), 3000);
 	}
 </script>
 
@@ -362,7 +359,7 @@
 	</div>
 
 	<!-- ═══ Account List ═══ -->
-	<main class="flex-1 overflow-y-auto" style="scrollbar-width: thin;">
+	<main class="flex-1 overflow-y-auto thin-scrollbar">
 		{#if loading.on}
 			<div class="flex h-full items-center justify-center">
 				<span class="material-symbols-outlined animate-spin text-5xl text-on-surface-variant">
@@ -397,12 +394,11 @@
 
 			{#each filtered as account (account.id)}
 				{@const brand = getBrand(account.issuer)}
-				<!-- TODO: add touch drag-to-reorder for mobile/APK -->
 				<div
 					class="account-row"
 					draggable="false"
-					in:fade={{ duration: 200, easing: cubicOut }}
-					out:slide={{ duration: 200, axis: 'y' }}
+					in:fade|local={{ duration: 200, easing: cubicOut }}
+					out:slide|local={{ duration: 200, axis: 'y' }}
 					animate:flip={{ duration: 250, easing: cubicOut }}
 					onclick={() => {
 						quickIssuerChangeId = '';
@@ -933,8 +929,6 @@
 			opacity: 0.3;
 		}
 	}
-
-	/* TODO: .dragging { opacity: 0.4; } — for mobile touch reorder */
 
 	/* Svelte handles enter/exit/reorder animations via transition: and animate: directives */
 

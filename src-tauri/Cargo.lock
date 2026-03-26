@@ -214,6 +214,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "hmac",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "sha1",
