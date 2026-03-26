@@ -249,6 +249,27 @@
 		}
 	}
 
+	async function exportAccounts() {
+		const path = await open({
+			title: 'Export accounts backup',
+			filters: [{ name: 'Text', extensions: ['txt'] }],
+			directory: false,
+		});
+		if (!path) return;
+		const savePath = typeof path === 'string' ? path : '';
+		if (!savePath) return;
+		try {
+			const count = await invoke('export_accounts', { path: savePath });
+			importMsg = `Exported ${count} accounts`;
+			clearTimeout(importTimer);
+			importTimer = setTimeout(() => (importMsg = ''), 3000);
+		} catch {
+			importMsg = 'Export failed';
+			clearTimeout(importTimer);
+			importTimer = setTimeout(() => (importMsg = ''), 3000);
+		}
+	}
+
 	async function openDataFolder() {
 		await invoke('open_data_folder');
 	}
@@ -718,6 +739,16 @@
 						<div class="flex-1 text-left">
 							<div class="text-sm text-on-surface">Change storage location</div>
 							<div class="text-xs text-on-surface-variant">Move accounts to a different folder</div>
+						</div>
+						<span class="material-symbols-outlined text-xl text-on-surface-variant"
+							>chevron_right</span
+						>
+					</button>
+					<button class="settings-row settings-row-btn" onclick={exportAccounts}>
+						<span class="material-symbols-outlined text-2xl text-on-surface-variant">download</span>
+						<div class="flex-1 text-left">
+							<div class="text-sm text-on-surface">Export backup</div>
+							<div class="text-xs text-on-surface-variant">Save all accounts to a .txt file</div>
 						</div>
 						<span class="material-symbols-outlined text-xl text-on-surface-variant"
 							>chevron_right</span

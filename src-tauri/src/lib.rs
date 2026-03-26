@@ -369,6 +369,22 @@ fn change_data_path(
     Ok(new_file.parent().unwrap_or(&new_file).display().to_string())
 }
 
+/// Export accounts to a text file (name:secret per line)
+#[tauri::command]
+fn export_accounts(
+    state: tauri::State<'_, Mutex<AppState>>,
+    path: String,
+) -> Result<u32, String> {
+    let st = lock_state(&state)?;
+    let mut lines = Vec::new();
+    for acc in &st.accounts {
+        lines.push(format!("{}:placeholder:{}", acc.name, acc.secret));
+    }
+    let content = lines.join("\n");
+    fs::write(&path, content).map_err(|e| format!("Failed to write export: {e}"))?;
+    Ok(st.accounts.len() as u32)
+}
+
 /// Read a text file — restricted to .txt and .csv extensions
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
@@ -402,6 +418,7 @@ pub fn run() {
             open_data_folder,
             change_data_path,
             read_text_file,
+            export_accounts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
