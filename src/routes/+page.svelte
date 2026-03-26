@@ -224,7 +224,7 @@
 		showSettings = true;
 	}
 
-	const GITHUB_REPO = 'mjau-mjau/authenticator';
+	const GITHUB_REPO = 'designer9999/authenticator';
 
 	async function checkForUpdates() {
 		updateStatus = 'Checking...';
