@@ -55,10 +55,11 @@ async function forceRefresh() {
 /**
  * @param {string} issuer
  * @param {string} name
+ * @param {string | undefined} password
  * @param {string} secret
  */
-export async function addAccount(issuer, name, secret) {
-	await invoke('add_account', { issuer, name, secret });
+export async function addAccount(issuer, name, password, secret) {
+	await invoke('add_account', { issuer, name, password: password || null, secret });
 	await forceRefresh();
 }
 
@@ -82,10 +83,17 @@ export async function removeAccount(id) {
  * @param {string} id
  * @param {string} issuer
  * @param {string} name
- * @param {string} [secret]
+ * @param {string | undefined} password
+ * @param {string | undefined} secret
  */
-export async function editAccount(id, issuer, name, secret) {
-	await invoke('edit_account', { id, issuer, name, secret: secret || null });
+export async function editAccount(id, issuer, name, password, secret) {
+	await invoke('edit_account', {
+		id,
+		issuer,
+		name,
+		password: password ?? null,
+		secret: secret || null,
+	});
 	await forceRefresh();
 }
 

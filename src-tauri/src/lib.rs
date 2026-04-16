@@ -18,6 +18,7 @@ pub struct Account {
     pub id: String,
     pub issuer: String,
     pub name: String,
+    pub password: String,
     pub secret: String,
     pub digits: u32,
     pub period: u32,
@@ -29,6 +30,7 @@ impl Default for Account {
             id: String::new(),
             issuer: String::new(),
             name: String::new(),
+            password: String::new(),
             secret: String::new(),
             digits: 6,
             period: 30,
@@ -46,6 +48,15 @@ pub struct AccountCode {
     pub period: u32,
     pub remaining: u32,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AccountDetails {
+    pub id: String,
+    pub issuer: String,
+    pub name: String,
+    pub password: String,
+    pub secret: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -86,6 +97,10 @@ fn now_secs() -> u64 {
 
 fn unique_id() -> String {
     format!("{}{:04}", chrono::Utc::now().timestamp_millis(), rand::random::<u16>() % 10000)
+}
+
+fn default_import_issuer() -> String {
+    "Google".into()
 }
 
 // ── Storage ──
@@ -189,6 +204,7 @@ fn add_account(
     state: tauri::State<'_, Mutex<AppState>>,
     issuer: String,
     name: String,
+    password: Option<String>,
     secret: String,
 ) -> Result<(), String> {
     let clean = clean_secret(&secret)?;
@@ -196,6 +212,7 @@ fn add_account(
         id: unique_id(),
         issuer,
         name,
+        password: password.unwrap_or_default(),
         secret: clean,
         digits: 6,
         period: 30,
@@ -223,18 +240,38 @@ fn edit_account(
     id: String,
     issuer: String,
     name: String,
+    password: Option<String>,
     secret: Option<String>,
 ) -> Result<(), String> {
     let mut st = lock_state(&state)?;
     let acc = st.accounts.iter_mut().find(|a| a.id == id).ok_or("Account not found")?;
     acc.issuer = issuer;
     acc.name = name;
+    if let Some(p) = password {
+        acc.password = p;
+    }
     if let Some(s) = secret {
         if !s.trim().is_empty() {
             acc.secret = clean_secret(&s)?;
         }
     }
     save(&app, &st.config, &st.accounts)
+}
+
+#[tauri::command]
+fn get_account_details(
+    state: tauri::State<'_, Mutex<AppState>>,
+    id: String,
+) -> Result<AccountDetails, String> {
+    let st = lock_state(&state)?;
+    let acc = st.accounts.iter().find(|a| a.id == id).ok_or("Account not found")?;
+    Ok(AccountDetails {
+        id: acc.id.clone(),
+        issuer: acc.issuer.clone(),
+        name: acc.name.clone(),
+        password: acc.password.clone(),
+        secret: acc.secret.clone(),
+    })
 }
 
 #[tauri::command]
@@ -267,10 +304,18 @@ fn bulk_import(
         let line = line.trim();
         if line.is_empty() { continue; }
         let parts: Vec<&str> = line.split(':').collect();
-        let (name, secret_raw) = if parts.len() >= 3 {
-            (parts[0].trim().to_string(), parts[2..].join(""))
+        let (name, password, secret_raw) = if parts.len() >= 3 {
+            (
+                parts[0].trim().to_string(),
+                parts[1..parts.len() - 1].join(":").trim().to_string(),
+                parts[parts.len() - 1].trim().to_string(),
+            )
         } else if parts.len() == 2 {
-            (parts[0].trim().to_string(), parts[1].to_string())
+            (
+                parts[0].trim().to_string(),
+                String::new(),
+                parts[1].trim().to_string(),
+            )
         } else {
             continue;
         };
@@ -280,8 +325,9 @@ fn bulk_import(
         };
         st.accounts.push(Account {
             id: unique_id(),
-            issuer: name.clone(),
+            issuer: default_import_issuer(),
             name,
+            password,
             secret: clean,
             digits: 6,
             period: 30,
@@ -369,7 +415,7 @@ fn change_data_path(
     Ok(new_file.parent().unwrap_or(&new_file).display().to_string())
 }
 
-/// Export accounts to a text file (name:secret per line)
+/// Export accounts to a text file (name:password:secret or name:secret per line)
 #[tauri::command]
 fn export_accounts(
     state: tauri::State<'_, Mutex<AppState>>,
@@ -378,7 +424,11 @@ fn export_accounts(
     let st = lock_state(&state)?;
     let mut lines = Vec::new();
     for acc in &st.accounts {
-        lines.push(format!("{}:placeholder:{}", acc.name, acc.secret));
+        if acc.password.trim().is_empty() {
+            lines.push(format!("{}:{}", acc.name, acc.secret));
+        } else {
+            lines.push(format!("{}:{}:{}", acc.name, acc.password, acc.secret));
+        }
     }
     let content = lines.join("\n");
     fs::write(&path, content).map_err(|e| format!("Failed to write export: {e}"))?;
@@ -412,6 +462,7 @@ pub fn run() {
             add_account,
             remove_account,
             edit_account,
+            get_account_details,
             reorder_accounts,
             bulk_import,
             get_app_info,

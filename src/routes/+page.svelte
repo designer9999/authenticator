@@ -57,6 +57,7 @@
 	let editId = $state('');
 	let editIssuer = $state('');
 	let editName = $state('');
+	let editPassword = $state('');
 	let editSecret = $state('');
 	let copied = $state('');
 	let copiedTimer = 0;
@@ -64,6 +65,7 @@
 	let quickPaste = $state('');
 	let issuer = $state('');
 	let name = $state('');
+	let password = $state('');
 	let secret = $state('');
 	let error = $state('');
 
@@ -112,6 +114,11 @@
 		return code.length === 6 ? code.slice(0, 3) + ' ' + code.slice(3) : code;
 	}
 
+	/** @param {string} accountName */
+	function defaultIssuerFor(accountName) {
+		return accountName.includes('@') ? 'Google' : accountName.charAt(0).toUpperCase();
+	}
+
 	/**
 	 * @param {string} id
 	 * @param {string} code
@@ -131,6 +138,7 @@
 		quickPaste = '';
 		issuer = '';
 		name = '';
+		password = '';
 		secret = '';
 		error = '';
 		showAdd = true;
@@ -142,12 +150,18 @@
 		const parts = val.split(':');
 		if (parts.length >= 3) {
 			name = parts[0].trim();
-			secret = parts.slice(2).join('').trim();
+			password = parts.slice(1, -1).join(':').trim();
+			secret = parts[parts.length - 1].trim();
 		} else if (parts.length === 2) {
 			name = parts[0].trim();
+			password = '';
 			secret = parts[1].trim();
 		} else {
+			password = '';
 			secret = val;
+		}
+		if (!issuer.trim() && name.trim().includes('@')) {
+			issuer = 'Google';
 		}
 		quickPaste = '';
 	}
@@ -159,8 +173,8 @@
 		}
 		try {
 			error = '';
-			const finalIssuer = issuer.trim() || name.trim().charAt(0).toUpperCase();
-			await addAccount(finalIssuer, name.trim(), secret.trim());
+			const finalIssuer = issuer.trim() || defaultIssuerFor(name.trim());
+			await addAccount(finalIssuer, name.trim(), password.trim(), secret.trim());
 			showAdd = false;
 		} catch (e) {
 			error = String(e);
@@ -179,7 +193,7 @@
 	async function quickChangeIssuer(accountId, newIssuer) {
 		const acc = accounts.find((a) => a.id === accountId);
 		if (!acc) return;
-		await editAccount(accountId, newIssuer, acc.name);
+		await editAccount(accountId, newIssuer, acc.name, undefined, undefined);
 		quickIssuerChangeId = '';
 	}
 
@@ -193,13 +207,22 @@
 	 * @param {string} currentIssuer
 	 * @param {string} currentName
 	 */
-	function openEdit(id, currentIssuer, currentName) {
+	async function openEdit(id, currentIssuer, currentName) {
 		editId = id;
 		editIssuer = currentIssuer;
 		editName = currentName;
-		editSecret = '';
 		error = '';
-		showEdit = true;
+		try {
+			/** @type {{ password: string, secret: string }} */
+			const details = await invoke('get_account_details', { id });
+			editPassword = details.password ?? '';
+			editSecret = details.secret ?? '';
+			showEdit = true;
+		} catch (e) {
+			editPassword = '';
+			editSecret = '';
+			error = String(e);
+		}
 	}
 
 	async function handleEdit() {
@@ -209,7 +232,13 @@
 		}
 		try {
 			error = '';
-			await editAccount(editId, editIssuer.trim(), editName.trim(), editSecret.trim() || undefined);
+			await editAccount(
+				editId,
+				editIssuer.trim(),
+				editName.trim(),
+				editPassword,
+				editSecret.trim() || undefined
+			);
 			showEdit = false;
 		} catch (e) {
 			error = String(e);
@@ -582,6 +611,16 @@
 					<label for="f-name">Account name</label>
 				</div>
 				<div class="m3-field">
+					<input
+						type="text"
+						placeholder=" "
+						autocomplete="off"
+						bind:value={password}
+						id="f-password"
+					/>
+					<label for="f-password">Password (optional)</label>
+				</div>
+				<div class="m3-field">
 					<input type="text" placeholder=" " autocomplete="off" bind:value={secret} id="f-secret" />
 					<label for="f-secret">Secret key (base32)</label>
 				</div>
@@ -637,10 +676,20 @@
 						type="text"
 						placeholder=" "
 						autocomplete="off"
+						bind:value={editPassword}
+						id="f-edit-password"
+					/>
+					<label for="f-edit-password">Password (optional)</label>
+				</div>
+				<div class="m3-field">
+					<input
+						type="text"
+						placeholder=" "
+						autocomplete="off"
 						bind:value={editSecret}
 						id="f-edit-secret"
 					/>
-					<label for="f-edit-secret">New secret key (leave empty to keep current)</label>
+					<label for="f-edit-secret">Secret key (base32)</label>
 				</div>
 				{#if error}<p class="error-msg">{error}</p>{/if}
 				<div class="dialog-actions">
