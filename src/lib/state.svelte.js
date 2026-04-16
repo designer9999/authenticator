@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /**
- * @typedef {{ id: string, issuer: string, name: string, code: string, digits: number, period: number, remaining: number, created_at: number }} AccountCode
+ * @typedef {{ id: string, issuer: string, name: string, password: string, code: string, has_code: boolean, digits: number, period: number, remaining: number, created_at: number }} AccountCode
  */
 
 /** @type {AccountCode[]} */
@@ -22,9 +22,10 @@ export async function refresh() {
 	try {
 		/** @type {AccountCode[]} */
 		const data = await invoke('get_accounts');
+		const activeCode = data.find((d) => d.has_code);
 
-		if (data.length > 0) {
-			remaining.secs = data[0].remaining;
+		if (activeCode) {
+			remaining.secs = activeCode.remaining;
 		} else {
 			remaining.secs = 30 - (Math.floor(Date.now() / 1000) % 30);
 		}
@@ -56,10 +57,10 @@ async function forceRefresh() {
  * @param {string} issuer
  * @param {string} name
  * @param {string | undefined} password
- * @param {string} secret
+ * @param {string | undefined} secret
  */
 export async function addAccount(issuer, name, password, secret) {
-	await invoke('add_account', { issuer, name, password: password || null, secret });
+	await invoke('add_account', { issuer, name, password: password || null, secret: secret || null });
 	await forceRefresh();
 }
 
@@ -92,7 +93,7 @@ export async function editAccount(id, issuer, name, password, secret) {
 		issuer,
 		name,
 		password: password ?? null,
-		secret: secret || null,
+		secret: secret ?? null,
 	});
 	await forceRefresh();
 }

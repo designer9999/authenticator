@@ -43,7 +43,9 @@ pub struct AccountCode {
     pub id: String,
     pub issuer: String,
     pub name: String,
+    pub password: String,
     pub code: String,
+    pub has_code: bool,
     pub digits: u32,
     pub period: u32,
     pub remaining: u32,
@@ -101,6 +103,25 @@ fn unique_id() -> String {
 
 fn default_import_issuer() -> String {
     "Google".into()
+}
+
+fn looks_like_secret(raw: &str) -> bool {
+    let clean: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() < 16 {
+        return false;
+    }
+    clean
+        .chars()
+        .all(|c| matches!(c.to_ascii_uppercase(), 'A'..='Z' | '2'..='7'))
+}
+
+fn account_exists(accounts: &[Account], issuer: &str, name: &str, password: &str, secret: &str) -> bool {
+    accounts.iter().any(|account| {
+        account.issuer.eq_ignore_ascii_case(issuer)
+            && account.name.eq_ignore_ascii_case(name)
+            && account.password == password
+            && account.secret == secret
+    })
 }
 
 // ── Storage ──
@@ -184,15 +205,26 @@ fn get_accounts(state: tauri::State<'_, Mutex<AppState>>) -> Result<Vec<AccountC
     let st = lock_state(&state)?;
     let now = now_secs();
     Ok(st.accounts.iter().map(|a| {
+        let has_code = !a.secret.trim().is_empty();
         let period = a.period as u64;
         AccountCode {
             id: a.id.clone(),
             issuer: a.issuer.clone(),
             name: a.name.clone(),
-            code: totp(&a.secret, a.digits, a.period).unwrap_or_else(|_| "------".into()),
+            password: a.password.clone(),
+            code: if has_code {
+                totp(&a.secret, a.digits, a.period).unwrap_or_else(|_| "------".into())
+            } else {
+                String::new()
+            },
+            has_code,
             digits: a.digits,
             period: a.period,
-            remaining: (a.period - (now % period) as u32),
+            remaining: if has_code {
+                a.period - (now % period) as u32
+            } else {
+                0
+            },
             created_at: a.id[..13.min(a.id.len())].parse::<i64>().unwrap_or(0),
         }
     }).collect())
@@ -205,19 +237,30 @@ fn add_account(
     issuer: String,
     name: String,
     password: Option<String>,
-    secret: String,
+    secret: Option<String>,
 ) -> Result<(), String> {
-    let clean = clean_secret(&secret)?;
     let account = Account {
         id: unique_id(),
         issuer,
         name,
         password: password.unwrap_or_default(),
-        secret: clean,
+        secret: match secret {
+            Some(raw) if !raw.trim().is_empty() => clean_secret(&raw)?,
+            _ => String::new(),
+        },
         digits: 6,
         period: 30,
     };
     let mut st = lock_state(&state)?;
+    if account_exists(
+        &st.accounts,
+        &account.issuer,
+        &account.name,
+        &account.password,
+        &account.secret,
+    ) {
+        return Ok(());
+    }
     st.accounts.push(account);
     save(&app, &st.config, &st.accounts)
 }
@@ -251,9 +294,11 @@ fn edit_account(
         acc.password = p;
     }
     if let Some(s) = secret {
-        if !s.trim().is_empty() {
-            acc.secret = clean_secret(&s)?;
-        }
+        acc.secret = if s.trim().is_empty() {
+            String::new()
+        } else {
+            clean_secret(&s)?
+        };
     }
     save(&app, &st.config, &st.accounts)
 }
@@ -291,7 +336,7 @@ fn reorder_accounts(
     save(&app, &st.config, &st.accounts)
 }
 
-/// Bulk import: each line is "name:password:secret" or "name:secret"
+/// Bulk import: each line is "name:password:secret", "name:password", or "name:secret"
 #[tauri::command]
 fn bulk_import(
     app: tauri::AppHandle,
@@ -308,21 +353,28 @@ fn bulk_import(
             (
                 parts[0].trim().to_string(),
                 parts[1..parts.len() - 1].join(":").trim().to_string(),
-                parts[parts.len() - 1].trim().to_string(),
+                Some(parts[parts.len() - 1].trim().to_string()),
             )
         } else if parts.len() == 2 {
-            (
-                parts[0].trim().to_string(),
-                String::new(),
-                parts[1].trim().to_string(),
-            )
+            let second = parts[1].trim().to_string();
+            if looks_like_secret(&second) {
+                (parts[0].trim().to_string(), String::new(), Some(second))
+            } else {
+                (parts[0].trim().to_string(), second, None)
+            }
         } else {
             continue;
         };
-        let clean = match clean_secret(&secret_raw) {
-            Ok(c) => c,
-            Err(_) => continue,
+        let clean = match secret_raw {
+            Some(secret_raw) => match clean_secret(&secret_raw) {
+                Ok(c) => c,
+                Err(_) => continue,
+            },
+            None => String::new(),
         };
+        if account_exists(&st.accounts, &default_import_issuer(), &name, &password, &clean) {
+            continue;
+        }
         st.accounts.push(Account {
             id: unique_id(),
             issuer: default_import_issuer(),
@@ -424,7 +476,9 @@ fn export_accounts(
     let st = lock_state(&state)?;
     let mut lines = Vec::new();
     for acc in &st.accounts {
-        if acc.password.trim().is_empty() {
+        if acc.secret.trim().is_empty() {
+            lines.push(format!("{}:{}", acc.name, acc.password));
+        } else if acc.password.trim().is_empty() {
             lines.push(format!("{}:{}", acc.name, acc.secret));
         } else {
             lines.push(format!("{}:{}:{}", acc.name, acc.password, acc.secret));

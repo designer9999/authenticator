@@ -72,16 +72,31 @@
 	/** @type {{ version: string, account_count: number, data_path: string } | null} */
 	let appInfo = $state(null);
 
+	let viewMode = $state('authenticators');
 	let filterIssuer = $state('');
 
-	let issuers = $derived([...new Set(accounts.map((a) => a.issuer))]);
-
-	let filtered = $derived(
+	let searchedAccounts = $derived(
 		accounts.filter((a) => {
-			if (filterIssuer && a.issuer !== filterIssuer) return false;
 			if (!search.q) return true;
 			const q = search.q.toLowerCase();
-			return a.issuer.toLowerCase().includes(q) || a.name.toLowerCase().includes(q);
+			return (
+				a.issuer.toLowerCase().includes(q) ||
+				a.name.toLowerCase().includes(q) ||
+				a.password.toLowerCase().includes(q)
+			);
+		})
+	);
+
+	let currentPool = $derived(
+		searchedAccounts.filter((a) => (viewMode === 'authenticators' ? a.has_code : !a.has_code))
+	);
+
+	let issuers = $derived([...new Set(currentPool.map((a) => a.issuer))]);
+
+	let filtered = $derived(
+		currentPool.filter((a) => {
+			if (filterIssuer && a.issuer !== filterIssuer) return false;
+			return true;
 		})
 	);
 
@@ -112,6 +127,12 @@
 	/** @param {string} code */
 	function fmt(code) {
 		return code.length === 6 ? code.slice(0, 3) + ' ' + code.slice(3) : code;
+	}
+
+	/** @param {string} value */
+	function looksLikeSecret(value) {
+		const clean = value.replace(/\s/g, '').toUpperCase();
+		return clean.length >= 16 && /^[A-Z2-7]+$/.test(clean);
 	}
 
 	/** @param {string} accountName */
@@ -154,8 +175,13 @@
 			secret = parts[parts.length - 1].trim();
 		} else if (parts.length === 2) {
 			name = parts[0].trim();
-			password = '';
-			secret = parts[1].trim();
+			if (looksLikeSecret(parts[1].trim())) {
+				password = '';
+				secret = parts[1].trim();
+			} else {
+				password = parts[1].trim();
+				secret = '';
+			}
 		} else {
 			password = '';
 			secret = val;
@@ -167,14 +193,19 @@
 	}
 
 	async function handleAdd() {
-		if (!name.trim() || !secret.trim()) {
-			error = 'Account name and secret key are required';
+		if (!name.trim() || (!password.trim() && !secret.trim())) {
+			error = 'Account name plus a password or secret key is required';
 			return;
 		}
 		try {
 			error = '';
 			const finalIssuer = issuer.trim() || defaultIssuerFor(name.trim());
-			await addAccount(finalIssuer, name.trim(), password.trim(), secret.trim());
+			await addAccount(
+				finalIssuer,
+				name.trim(),
+				password.trim() || undefined,
+				secret.trim() || undefined
+			);
 			showAdd = false;
 		} catch (e) {
 			error = String(e);
@@ -225,9 +256,25 @@
 		}
 	}
 
+	/**
+	 * @param {string} id
+	 * @param {string} value
+	 */
+	async function copyPassword(id, value) {
+		try {
+			if (!value) return;
+			await navigator.clipboard.writeText(value);
+			copied = id;
+			clearTimeout(copiedTimer);
+			copiedTimer = setTimeout(() => (copied = ''), 2000);
+		} catch {
+			/* noop */
+		}
+	}
+
 	async function handleEdit() {
-		if (!editIssuer.trim() || !editName.trim()) {
-			error = 'Issuer and name are required';
+		if (!editIssuer.trim() || !editName.trim() || (!editPassword.trim() && !editSecret.trim())) {
+			error = 'Issuer, name, and a password or secret key are required';
 			return;
 		}
 		try {
@@ -236,8 +283,8 @@
 				editId,
 				editIssuer.trim(),
 				editName.trim(),
-				editPassword,
-				editSecret.trim() || undefined
+				editPassword.trim() || undefined,
+				editSecret.trim()
 			);
 			showEdit = false;
 		} catch (e) {
@@ -329,7 +376,7 @@
 					dropActive = false;
 					const paths = event.payload.paths;
 					if (paths && paths.length > 0) {
-						handleFileDrop(paths[0]);
+						handleFileDrop(paths);
 					}
 				}
 			}
@@ -339,14 +386,22 @@
 		};
 	});
 
-	/** @param {string} path */
-	async function handleFileDrop(path) {
+	/**
+	 * @param {string | string[]} input
+	 */
+	async function handleFileDrop(input) {
+		const paths = Array.isArray(input) ? input : [input];
 		try {
-			/** @type {string} */
-			const text = await invoke('read_text_file', { path });
-			const count = await bulkImport(text);
+			let count = 0;
+			for (const path of paths) {
+				/** @type {string} */
+				const text = await invoke('read_text_file', { path });
+				count += await bulkImport(text);
+			}
 			importMsg =
-				count > 0 ? `Imported ${count} account${count > 1 ? 's' : ''}` : 'No valid accounts found';
+				count > 0
+					? `Imported ${count} account${count > 1 ? 's' : ''} from ${paths.length} file${paths.length > 1 ? 's' : ''}`
+					: 'No valid accounts found';
 			clearTimeout(importTimer);
 			importTimer = setTimeout(() => (importMsg = ''), 3000);
 		} catch {
@@ -444,15 +499,47 @@
 					progress_activity
 				</span>
 			</div>
-		{:else if filtered.length === 0}
-			<div
-				class="flex h-full flex-col items-center justify-center gap-4 px-6 text-on-surface-variant"
-			>
-				<span class="material-symbols-outlined text-7xl opacity-30">shield</span>
-				<h2 class="text-xl font-medium text-on-surface">No accounts yet</h2>
-				<p class="text-sm opacity-60">Tap + to add your first account</p>
-			</div>
 		{:else}
+			<div class="filter-bar view-tabs">
+				<button
+					class="filter-chip"
+					class:active={viewMode === 'authenticators'}
+					onclick={() => {
+						viewMode = 'authenticators';
+						filterIssuer = '';
+					}}
+				>
+					Authenticators
+				</button>
+				<button
+					class="filter-chip"
+					class:active={viewMode === 'accounts'}
+					onclick={() => {
+						viewMode = 'accounts';
+						filterIssuer = '';
+					}}
+				>
+					Accounts
+				</button>
+			</div>
+
+			{#if filtered.length === 0}
+				<div
+					class="flex h-full flex-col items-center justify-center gap-4 px-6 text-on-surface-variant"
+				>
+					<span class="material-symbols-outlined text-7xl opacity-30">
+						{viewMode === 'authenticators' ? 'shield' : 'person'}
+					</span>
+					<h2 class="text-xl font-medium text-on-surface">
+						{viewMode === 'authenticators' ? 'No authenticators yet' : 'No accounts yet'}
+					</h2>
+					<p class="text-sm opacity-60">
+						{viewMode === 'authenticators'
+							? 'Add or import an authenticator entry'
+							: 'Add or import a regular account'}
+					</p>
+				</div>
+			{:else}
 			{#if issuers.length > 1}
 				<div class="filter-bar">
 					<button
@@ -470,88 +557,167 @@
 				</div>
 			{/if}
 
-			{#each filtered as account (account.id)}
-				{@const brand = getBrand(account.issuer)}
-				<div
-					class="account-row"
-					draggable="false"
-					in:fade|local={{ duration: 200, easing: cubicOut }}
-					out:slide|local={{ duration: 200, axis: 'y' }}
-					animate:flip={{ duration: 250, easing: cubicOut }}
-					onclick={() => {
-						quickIssuerChangeId = '';
-						copy(account.id, account.code);
-					}}
-					onkeydown={(e) => e.key === 'Enter' && copy(account.id, account.code)}
-					role="button"
-					tabindex="0"
-				>
-					<button
-						class="brand-icon"
-						onclick={(e) => {
-							e.stopPropagation();
-							quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
+			{#if viewMode === 'authenticators'}
+				{#each filtered as account (account.id)}
+					{@const brand = getBrand(account.issuer)}
+					<div
+						class="account-row"
+						draggable="false"
+						in:fade|local={{ duration: 200, easing: cubicOut }}
+						out:slide|local={{ duration: 200, axis: 'y' }}
+						animate:flip={{ duration: 250, easing: cubicOut }}
+						onclick={() => {
+							quickIssuerChangeId = '';
+							copy(account.id, account.code);
 						}}
-						title="Change issuer"
+						onkeydown={(e) => e.key === 'Enter' && copy(account.id, account.code)}
+						role="button"
+						tabindex="0"
 					>
-						{#if brand.svg}
-							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-							{@html brand.svg}
-						{:else}
-							{brand.letter}
-						{/if}
-					</button>
-					{#if quickIssuerChangeId === account.id}
-						<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
-							<IssuerPicker
-								selected={account.issuer}
-								onselect={(name) => quickChangeIssuer(account.id, name)}
-							/>
-						</div>
-					{/if}
-
-					<div class="min-w-0 flex-1">
-						<div class="truncate text-sm text-on-surface">{account.issuer}: {account.name}</div>
-						<div class="code-text">{fmt(account.code)}</div>
-						{#if account.created_at}
-							<div class="text-xs text-on-surface-variant opacity-50">
-								{timeAgo(account.created_at)}
+						<button
+							class="brand-icon"
+							onclick={(e) => {
+								e.stopPropagation();
+								quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
+							}}
+							title="Change issuer"
+						>
+							{#if brand.svg}
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+								{@html brand.svg}
+							{:else}
+								{brand.letter}
+							{/if}
+						</button>
+						{#if quickIssuerChangeId === account.id}
+							<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
+								<IssuerPicker
+									selected={account.issuer}
+									onselect={(name) => quickChangeIssuer(account.id, name)}
+								/>
 							</div>
 						{/if}
-					</div>
 
-					<div class="row-actions">
-						<IconBtn
-							icon="edit"
-							label="Edit"
-							class="hover-action"
-							onclick={(e) => {
-								e.stopPropagation();
-								openEdit(account.id, account.issuer, account.name);
-							}}
-						/>
-						<IconBtn
-							icon="delete"
-							label="Delete"
-							class="hover-action del-btn"
-							onclick={(e) => {
-								e.stopPropagation();
-								deleteId = account.id;
-								showDelete = true;
-							}}
-						/>
-						<IconBtn
-							icon={copied === account.id ? 'check' : 'content_copy'}
-							label="Copy code"
-							class="copy-btn {copied === account.id ? 'copied' : ''}"
-							onclick={(e) => {
-								e.stopPropagation();
-								copy(account.id, account.code);
-							}}
-						/>
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-sm text-on-surface">{account.issuer}: {account.name}</div>
+							<div class="code-text">{fmt(account.code)}</div>
+							{#if account.created_at}
+								<div class="text-xs text-on-surface-variant opacity-50">
+									{timeAgo(account.created_at)}
+								</div>
+							{/if}
+						</div>
+
+						<div class="row-actions">
+							<IconBtn
+								icon="edit"
+								label="Edit"
+								class="hover-action"
+								onclick={(e) => {
+									e.stopPropagation();
+									openEdit(account.id, account.issuer, account.name);
+								}}
+							/>
+							<IconBtn
+								icon="delete"
+								label="Delete"
+								class="hover-action del-btn"
+								onclick={(e) => {
+									e.stopPropagation();
+									deleteId = account.id;
+									showDelete = true;
+								}}
+							/>
+							<IconBtn
+								icon={copied === account.id ? 'check' : 'content_copy'}
+								label="Copy code"
+								class="copy-btn {copied === account.id ? 'copied' : ''}"
+								onclick={(e) => {
+									e.stopPropagation();
+									copy(account.id, account.code);
+								}}
+							/>
+						</div>
 					</div>
-				</div>
-			{/each}
+				{/each}
+			{:else}
+				{#each filtered as account (account.id)}
+					{@const brand = getBrand(account.issuer)}
+					<div
+						class="account-row account-row-passive"
+						draggable="false"
+						in:fade|local={{ duration: 200, easing: cubicOut }}
+						out:slide|local={{ duration: 200, axis: 'y' }}
+						animate:flip={{ duration: 250, easing: cubicOut }}
+					>
+						<button
+							class="brand-icon"
+							onclick={(e) => {
+								e.stopPropagation();
+								quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
+							}}
+							title="Change issuer"
+						>
+							{#if brand.svg}
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+								{@html brand.svg}
+							{:else}
+								{brand.letter}
+							{/if}
+						</button>
+						{#if quickIssuerChangeId === account.id}
+							<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
+								<IssuerPicker
+									selected={account.issuer}
+									onselect={(name) => quickChangeIssuer(account.id, name)}
+								/>
+							</div>
+						{/if}
+
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-sm text-on-surface">{account.name}</div>
+							<div class="account-password">{account.password}</div>
+							{#if account.created_at}
+								<div class="text-xs text-on-surface-variant opacity-50">
+									{timeAgo(account.created_at)}
+								</div>
+							{/if}
+						</div>
+
+						<div class="row-actions row-actions-visible">
+							<IconBtn
+								icon="edit"
+								label="Edit"
+								class="hover-action"
+								onclick={(e) => {
+									e.stopPropagation();
+									openEdit(account.id, account.issuer, account.name);
+								}}
+							/>
+							<IconBtn
+								icon="delete"
+								label="Delete"
+								class="hover-action del-btn"
+								onclick={(e) => {
+									e.stopPropagation();
+									deleteId = account.id;
+									showDelete = true;
+								}}
+							/>
+							<IconBtn
+								icon={copied === account.id ? 'check' : 'content_copy'}
+								label="Copy password"
+								class="copy-btn {copied === account.id ? 'copied' : ''}"
+								onclick={(e) => {
+									e.stopPropagation();
+									copyPassword(account.id, account.password);
+								}}
+							/>
+						</div>
+					</div>
+				{/each}
+			{/if}
+			{/if}
 		{/if}
 	</main>
 
@@ -585,7 +751,7 @@
 						oninput={handleQuickPaste}
 						id="f-quick"
 					/>
-					<label for="f-quick">Quick paste (name:pass:secret)</label>
+					<label for="f-quick">Quick paste (name:pass:secret or name:pass)</label>
 				</div>
 				<button
 					class="m3-btn-tonal"
@@ -622,8 +788,9 @@
 				</div>
 				<div class="m3-field">
 					<input type="text" placeholder=" " autocomplete="off" bind:value={secret} id="f-secret" />
-					<label for="f-secret">Secret key (base32)</label>
+					<label for="f-secret">Secret key (base32, optional)</label>
 				</div>
+				<p class="dialog-body dialog-hint">Leave secret empty to save this as a regular account.</p>
 				{#if error}<p class="error-msg">{error}</p>{/if}
 				<div class="dialog-actions">
 					<button class="m3-btn-text" onclick={() => (showAdd = false)}>Cancel</button>
@@ -689,8 +856,9 @@
 						bind:value={editSecret}
 						id="f-edit-secret"
 					/>
-					<label for="f-edit-secret">Secret key (base32)</label>
+					<label for="f-edit-secret">Secret key (base32, optional)</label>
 				</div>
+				<p class="dialog-body dialog-hint">Leave secret empty to keep this in the Accounts category.</p>
 				{#if error}<p class="error-msg">{error}</p>{/if}
 				<div class="dialog-actions">
 					<button class="m3-btn-text" onclick={() => (showEdit = false)}>Cancel</button>
@@ -987,6 +1155,14 @@
 		outline-offset: -2px;
 	}
 
+	.account-row-passive {
+		cursor: default;
+	}
+
+	.account-row-passive:hover {
+		background: color-mix(in srgb, var(--color-on-surface) 4%, transparent);
+	}
+
 	/* M3 Leading Avatar — 40dp circle, clickable to change issuer */
 	.brand-icon {
 		display: flex;
@@ -1055,6 +1231,14 @@
 		}
 	}
 
+	.account-password {
+		font-size: 0.9375rem;
+		font-weight: 600;
+		line-height: 1.35rem;
+		color: var(--color-on-surface);
+		word-break: break-word;
+	}
+
 	/* Svelte handles enter/exit/reorder animations via transition: and animate: directives */
 
 	/* Trailing actions container */
@@ -1070,6 +1254,10 @@
 	.row-actions :global(.hover-action) {
 		opacity: 0;
 		transition: opacity var(--m3-fast-effects-dur) var(--m3-fast-effects);
+	}
+
+	.row-actions.row-actions-visible :global(.hover-action) {
+		opacity: 1;
 	}
 
 	.account-row:hover .row-actions :global(.hover-action) {
@@ -1095,6 +1283,11 @@
 		padding: 8px 16px;
 		overflow-x: auto;
 		scrollbar-width: none;
+	}
+
+	.view-tabs {
+		padding-top: 12px;
+		padding-bottom: 4px;
 	}
 
 	.filter-chip {
@@ -1204,6 +1397,11 @@
 		font-weight: 400;
 		line-height: 1.25rem;
 		color: var(--color-on-surface-variant);
+	}
+
+	.dialog-hint {
+		margin-top: -8px;
+		margin-bottom: 16px;
 	}
 	.dialog-actions {
 		display: flex;
