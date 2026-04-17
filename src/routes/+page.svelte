@@ -6,7 +6,9 @@
 	import { cubicOut } from 'svelte/easing';
 	import IconBtn from '$lib/IconBtn.svelte';
 	import IssuerPicker from '$lib/IssuerPicker.svelte';
-	import { confirm, open } from '@tauri-apps/plugin-dialog';
+	import { open } from '@tauri-apps/plugin-dialog';
+	import { relaunch } from '@tauri-apps/plugin-process';
+	import { check } from '@tauri-apps/plugin-updater';
 	import {
 		accounts,
 		search,
@@ -303,27 +305,15 @@
 	async function checkForUpdates() {
 		updateStatus = 'Checking...';
 		try {
-			/** @type {{ configured: boolean, available: boolean, currentVersion: string, latestVersion?: string | null, notes?: string | null, message: string }} */
-			const result = await invoke('check_for_updates');
-			updateStatus = result.message;
-			if (!result.configured || !result.available || !result.latestVersion) {
-				return;
+			const update = await check();
+			if (update) {
+				updateStatus = `Downloading v${update.version}...`;
+				await update.downloadAndInstall();
+				updateStatus = 'Update installed. Restarting...';
+				await relaunch();
+			} else {
+				updateStatus = `You're on the latest version (${appInfo?.version ?? '...'})`;
 			}
-
-			const shouldInstall = await confirm(
-				`Version ${result.latestVersion} is ready to download.\n\n${result.notes?.trim() || 'Install now?'}`,
-				{
-					title: 'Update available',
-					kind: 'info',
-					okLabel: 'Install',
-					cancelLabel: 'Later',
-				}
-			);
-			if (!shouldInstall) return;
-
-			updateStatus = `Downloading v${result.latestVersion}...`;
-			const installMessage = await invoke('install_update');
-			updateStatus = String(installMessage);
 		} catch (e) {
 			updateStatus = String(e);
 		}
