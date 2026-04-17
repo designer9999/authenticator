@@ -7,8 +7,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 type HmacSha1 = Hmac<Sha1>;
+const DEFAULT_UPDATER_PUBKEY: &str =
+    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0OEQ0NzA0OUIzREMyRTUKUldUbHdqMmJCRWVOeEUzbEZodFhrZXRXVEJKblRqOVRtNVEwcWdTY2NvRGs1eVYyVkdXYUpiYmIK";
+const DEFAULT_UPDATER_ENDPOINT: &str =
+    "https://github.com/designer9999/authenticator/releases/latest/download/latest.json";
 
 /// Forward-compatible: #[serde(default)] ensures old JSON files load
 /// even if future versions add new fields.
@@ -72,6 +77,9 @@ pub struct AppState {
     pub config: AppConfig,
 }
 
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<Update>>);
+
 // ── Helpers ──
 
 /// Strip whitespace and uppercase a base32 secret. Returns Err if invalid.
@@ -98,7 +106,11 @@ fn now_secs() -> u64 {
 }
 
 fn unique_id() -> String {
-    format!("{}{:04}", chrono::Utc::now().timestamp_millis(), rand::random::<u16>() % 10000)
+    format!(
+        "{}{:04}",
+        chrono::Utc::now().timestamp_millis(),
+        rand::random::<u16>() % 10000
+    )
 }
 
 fn default_import_issuer() -> String {
@@ -115,7 +127,13 @@ fn looks_like_secret(raw: &str) -> bool {
         .all(|c| matches!(c.to_ascii_uppercase(), 'A'..='Z' | '2'..='7'))
 }
 
-fn account_exists(accounts: &[Account], issuer: &str, name: &str, password: &str, secret: &str) -> bool {
+fn account_exists(
+    accounts: &[Account],
+    issuer: &str,
+    name: &str,
+    password: &str,
+    secret: &str,
+) -> bool {
     accounts.iter().any(|account| {
         account.issuer.eq_ignore_ascii_case(issuer)
             && account.name.eq_ignore_ascii_case(name)
@@ -171,8 +189,23 @@ fn save(app: &tauri::AppHandle, config: &AppConfig, accounts: &[Account]) -> Res
     fs::write(path, json).map_err(|e| format!("Failed to save accounts: {e}"))
 }
 
-fn lock_state<'a>(state: &'a tauri::State<'_, Mutex<AppState>>) -> Result<std::sync::MutexGuard<'a, AppState>, String> {
+fn lock_state<'a>(
+    state: &'a tauri::State<'_, Mutex<AppState>>,
+) -> Result<std::sync::MutexGuard<'a, AppState>, String> {
     state.lock().map_err(|_| "State lock poisoned".to_string())
+}
+
+fn updater_pubkey() -> Option<String> {
+    option_env!("TAURI_UPDATER_PUBKEY")
+        .map(|value| value.replace("\\n", "\n"))
+        .or_else(|| Some(DEFAULT_UPDATER_PUBKEY.to_string()))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn updater_endpoint() -> &'static str {
+    option_env!("TAURI_UPDATER_ENDPOINT")
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(DEFAULT_UPDATER_ENDPOINT)
 }
 
 // ── TOTP ──
@@ -204,30 +237,34 @@ fn totp(secret_b32: &str, digits: u32, period: u32) -> Result<String, String> {
 fn get_accounts(state: tauri::State<'_, Mutex<AppState>>) -> Result<Vec<AccountCode>, String> {
     let st = lock_state(&state)?;
     let now = now_secs();
-    Ok(st.accounts.iter().map(|a| {
-        let has_code = !a.secret.trim().is_empty();
-        let period = a.period as u64;
-        AccountCode {
-            id: a.id.clone(),
-            issuer: a.issuer.clone(),
-            name: a.name.clone(),
-            password: a.password.clone(),
-            code: if has_code {
-                totp(&a.secret, a.digits, a.period).unwrap_or_else(|_| "------".into())
-            } else {
-                String::new()
-            },
-            has_code,
-            digits: a.digits,
-            period: a.period,
-            remaining: if has_code {
-                a.period - (now % period) as u32
-            } else {
-                0
-            },
-            created_at: a.id[..13.min(a.id.len())].parse::<i64>().unwrap_or(0),
-        }
-    }).collect())
+    Ok(st
+        .accounts
+        .iter()
+        .map(|a| {
+            let has_code = !a.secret.trim().is_empty();
+            let period = a.period as u64;
+            AccountCode {
+                id: a.id.clone(),
+                issuer: a.issuer.clone(),
+                name: a.name.clone(),
+                password: a.password.clone(),
+                code: if has_code {
+                    totp(&a.secret, a.digits, a.period).unwrap_or_else(|_| "------".into())
+                } else {
+                    String::new()
+                },
+                has_code,
+                digits: a.digits,
+                period: a.period,
+                remaining: if has_code {
+                    a.period - (now % period) as u32
+                } else {
+                    0
+                },
+                created_at: a.id[..13.min(a.id.len())].parse::<i64>().unwrap_or(0),
+            }
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -287,7 +324,11 @@ fn edit_account(
     secret: Option<String>,
 ) -> Result<(), String> {
     let mut st = lock_state(&state)?;
-    let acc = st.accounts.iter_mut().find(|a| a.id == id).ok_or("Account not found")?;
+    let acc = st
+        .accounts
+        .iter_mut()
+        .find(|a| a.id == id)
+        .ok_or("Account not found")?;
     acc.issuer = issuer;
     acc.name = name;
     if let Some(p) = password {
@@ -309,7 +350,11 @@ fn get_account_details(
     id: String,
 ) -> Result<AccountDetails, String> {
     let st = lock_state(&state)?;
-    let acc = st.accounts.iter().find(|a| a.id == id).ok_or("Account not found")?;
+    let acc = st
+        .accounts
+        .iter()
+        .find(|a| a.id == id)
+        .ok_or("Account not found")?;
     Ok(AccountDetails {
         id: acc.id.clone(),
         issuer: acc.issuer.clone(),
@@ -347,7 +392,9 @@ fn bulk_import(
     let mut count = 0u32;
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let parts: Vec<&str> = line.split(':').collect();
         let (name, password, secret_raw) = if parts.len() >= 3 {
             (
@@ -372,7 +419,13 @@ fn bulk_import(
             },
             None => String::new(),
         };
-        if account_exists(&st.accounts, &default_import_issuer(), &name, &password, &clean) {
+        if account_exists(
+            &st.accounts,
+            &default_import_issuer(),
+            &name,
+            &password,
+            &clean,
+        ) {
             continue;
         }
         st.accounts.push(Account {
@@ -399,6 +452,18 @@ pub struct AppInfo {
     pub data_path: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub configured: bool,
+    pub available: bool,
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub notes: Option<String>,
+    pub published_at: Option<String>,
+    pub message: String,
+}
+
 #[tauri::command]
 fn get_app_info(
     app: tauri::AppHandle,
@@ -411,6 +476,111 @@ fn get_app_info(
         account_count: st.accounts.len(),
         data_path: path.parent().unwrap_or(&path).display().to_string(),
     })
+}
+
+#[tauri::command]
+async fn check_for_updates(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<UpdateCheckResult, String> {
+    {
+        let mut pending = pending
+            .0
+            .lock()
+            .map_err(|_| "Pending update lock poisoned".to_string())?;
+        *pending = None;
+    }
+
+    let Some(pubkey) = updater_pubkey() else {
+        return Ok(UpdateCheckResult {
+            configured: false,
+            available: false,
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            latest_version: None,
+            notes: None,
+            published_at: None,
+            message: "Automatic updates are not configured in this build".into(),
+        });
+    };
+
+    let endpoint = updater_endpoint();
+    let updater = app
+        .updater_builder()
+        .pubkey(pubkey)
+        .endpoints(vec![endpoint.parse().map_err(|e| {
+            format!("Invalid updater endpoint '{endpoint}': {e}")
+        })?])
+        .map_err(|e| format!("Failed to configure updater endpoint: {e}"))?
+        .build()
+        .map_err(|e| format!("Failed to build updater: {e}"))?;
+
+    if let Some(update) = updater
+        .check()
+        .await
+        .map_err(|e| format!("Failed to check for updates: {e}"))?
+    {
+        let result = UpdateCheckResult {
+            configured: true,
+            available: true,
+            current_version: update.current_version.clone(),
+            latest_version: Some(update.version.clone()),
+            notes: update.body.clone(),
+            published_at: update.date.as_ref().map(ToString::to_string),
+            message: format!("Update available: v{}", update.version),
+        };
+        let mut pending = pending
+            .0
+            .lock()
+            .map_err(|_| "Pending update lock poisoned".to_string())?;
+        *pending = Some(update);
+        Ok(result)
+    } else {
+        Ok(UpdateCheckResult {
+            configured: true,
+            available: false,
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            latest_version: None,
+            notes: None,
+            published_at: None,
+            message: format!(
+                "You're on the latest version ({})",
+                env!("CARGO_PKG_VERSION")
+            ),
+        })
+    }
+}
+
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    let _ = &app;
+
+    let update = {
+        let mut pending = pending
+            .0
+            .lock()
+            .map_err(|_| "Pending update lock poisoned".to_string())?;
+        pending
+            .take()
+            .ok_or_else(|| "No pending update. Check for updates first.".to_string())?
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("Failed to download and install update: {e}"))?;
+
+    #[cfg(not(target_os = "windows"))]
+    app.restart();
+
+    #[cfg(target_os = "windows")]
+    return Ok("Update installed. Windows will close the app to finish installation.".into());
+
+    #[cfg(not(target_os = "windows"))]
+    Ok("Update installed. Restarting app...".into())
 }
 
 #[tauri::command]
@@ -469,10 +639,7 @@ fn change_data_path(
 
 /// Export accounts to a text file (name:password:secret or name:secret per line)
 #[tauri::command]
-fn export_accounts(
-    state: tauri::State<'_, Mutex<AppState>>,
-    path: String,
-) -> Result<u32, String> {
+fn export_accounts(state: tauri::State<'_, Mutex<AppState>>, path: String) -> Result<u32, String> {
     let st = lock_state(&state)?;
     let mut lines = Vec::new();
     for acc in &st.accounts {
@@ -494,7 +661,7 @@ fn export_accounts(
 fn read_text_file(path: String) -> Result<String, String> {
     let p = PathBuf::from(&path);
     match p.extension().and_then(|e| e.to_str()) {
-        Some("txt" | "csv") => {},
+        Some("txt" | "csv") => {}
         _ => return Err("Only .txt and .csv files are supported".into()),
     }
     fs::read_to_string(&path).map_err(|e| format!("Cannot read file: {e}"))
@@ -505,10 +672,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let config = load_config(app.handle());
             let accounts = load(app.handle(), &config);
             app.manage(Mutex::new(AppState { accounts, config }));
+            app.manage(PendingUpdate::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -520,6 +689,8 @@ pub fn run() {
             reorder_accounts,
             bulk_import,
             get_app_info,
+            check_for_updates,
+            install_update,
             open_data_folder,
             change_data_path,
             read_text_file,

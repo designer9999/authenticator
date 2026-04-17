@@ -15,6 +15,7 @@ A modern TOTP authenticator desktop app built with **Tauri v2**, **Svelte 5**, a
 - **Copy to clipboard** — click any account row to copy the current code
 - **Custom titlebar** — drag to move, double-click to maximize, native window controls
 - **Settings** — version info, account count, data location, change storage path, check for updates
+- **Auto-updates** — checks GitHub Releases for signed Tauri update bundles and installs them in-app
 - **Fully offline** — Roboto Flex + Material Symbols fonts bundled locally
 - **M3 Expressive design** — dark theme, proper color tokens, motion springs, accessibility
 
@@ -57,6 +58,31 @@ npm run tauri build
 ```
 
 The installer will be in `src-tauri/target/release/bundle/`.
+
+If you want the produced app to support in-app updates, build with:
+
+```bash
+export TAURI_UPDATER_PUBKEY="$(cat /path/to/generated/public-key-file)"
+export TAURI_UPDATER_ENDPOINT="https://github.com/designer9999/authenticator/releases/latest/download/latest.json"
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/authenticator.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+npm run tauri build
+```
+
+## Automatic Updates
+
+This project now uses the Tauri updater plugin instead of only comparing the latest GitHub tag.
+
+Required release setup:
+
+1. Generate a signing key pair with `npm run tauri signer generate -- -w ~/.tauri/authenticator.key`
+2. Add `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to GitHub Actions secrets
+3. Add `TAURI_UPDATER_PUBKEY` to GitHub Actions secrets or variables using the content of the generated public key
+4. Publish releases through GitHub Actions so the release includes signed updater bundles and `latest.json`
+
+After that, installed builds can check, download, and install updates from:
+
+`https://github.com/designer9999/authenticator/releases/latest/download/latest.json`
 
 ## Account Format
 

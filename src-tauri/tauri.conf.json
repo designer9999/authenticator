@@ -1,41 +1,50 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Authenticator",
-  "version": "0.1.1",
-  "identifier": "com.authenticator.app",
-  "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../build"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Authenticator",
-        "width": 420,
-        "height": 720,
-        "resizable": true,
-        "minWidth": 360,
-        "minHeight": 500,
-        "decorations": false,
-        "transparent": false
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "publisher": "Authenticator",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  }
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Authenticator",
+	"version": "0.1.2",
+	"identifier": "com.authenticator.app",
+	"build": {
+		"beforeDevCommand": "npm run dev",
+		"devUrl": "http://localhost:1420",
+		"beforeBuildCommand": "npm run build",
+		"frontendDist": "../build"
+	},
+	"app": {
+		"windows": [
+			{
+				"title": "Authenticator",
+				"width": 420,
+				"height": 720,
+				"resizable": true,
+				"minWidth": 360,
+				"minHeight": 500,
+				"decorations": false,
+				"transparent": false
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	},
+	"bundle": {
+		"active": true,
+		"createUpdaterArtifacts": true,
+		"targets": "all",
+		"publisher": "Authenticator",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		]
+	},
+	"plugins": {
+		"updater": {
+			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM0OEQ0NzA0OUIzREMyRTUKUldUbHdqMmJCRWVOeEUzbEZodFhrZXRXVEJKblRqOVRtNVEwcWdTY2NvRGs1eVYyVkdXYUpiYmIK",
+			"endpoints": [
+				"https://github.com/designer9999/authenticator/releases/latest/download/latest.json"
+			]
+		}
+	}
 }

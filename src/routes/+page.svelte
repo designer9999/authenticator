@@ -6,7 +6,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import IconBtn from '$lib/IconBtn.svelte';
 	import IssuerPicker from '$lib/IssuerPicker.svelte';
-	import { open } from '@tauri-apps/plugin-dialog';
+	import { confirm, open } from '@tauri-apps/plugin-dialog';
 	import {
 		accounts,
 		search,
@@ -300,28 +300,32 @@
 		showSettings = true;
 	}
 
-	const GITHUB_REPO = 'designer9999/authenticator';
-
 	async function checkForUpdates() {
 		updateStatus = 'Checking...';
 		try {
-			const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
-			if (!res.ok) {
-				updateStatus = 'Could not reach update server';
+			/** @type {{ configured: boolean, available: boolean, currentVersion: string, latestVersion?: string | null, notes?: string | null, message: string }} */
+			const result = await invoke('check_for_updates');
+			updateStatus = result.message;
+			if (!result.configured || !result.available || !result.latestVersion) {
 				return;
 			}
-			const data = await res.json();
-			const latest = data.tag_name?.replace(/^v/, '') ?? '';
-			const current = appInfo?.version ?? '';
-			if (!latest) {
-				updateStatus = 'No releases found';
-			} else if (latest === current) {
-				updateStatus = `You're on the latest version (${current})`;
-			} else {
-				updateStatus = `Update available: v${latest}`;
-			}
-		} catch {
-			updateStatus = 'Failed to check for updates';
+
+			const shouldInstall = await confirm(
+				`Version ${result.latestVersion} is ready to download.\n\n${result.notes?.trim() || 'Install now?'}`,
+				{
+					title: 'Update available',
+					kind: 'info',
+					okLabel: 'Install',
+					cancelLabel: 'Later',
+				}
+			);
+			if (!shouldInstall) return;
+
+			updateStatus = `Downloading v${result.latestVersion}...`;
+			const installMessage = await invoke('install_update');
+			updateStatus = String(installMessage);
+		} catch (e) {
+			updateStatus = String(e);
 		}
 	}
 
@@ -540,183 +544,183 @@
 					</p>
 				</div>
 			{:else}
-			{#if issuers.length > 1}
-				<div class="filter-bar">
-					<button
-						class="filter-chip"
-						class:active={!filterIssuer}
-						onclick={() => (filterIssuer = '')}>All</button
-					>
-					{#each issuers as iss (iss)}
+				{#if issuers.length > 1}
+					<div class="filter-bar">
 						<button
 							class="filter-chip"
-							class:active={filterIssuer === iss}
-							onclick={() => (filterIssuer = filterIssuer === iss ? '' : iss)}>{iss}</button
+							class:active={!filterIssuer}
+							onclick={() => (filterIssuer = '')}>All</button
 						>
+						{#each issuers as iss (iss)}
+							<button
+								class="filter-chip"
+								class:active={filterIssuer === iss}
+								onclick={() => (filterIssuer = filterIssuer === iss ? '' : iss)}>{iss}</button
+							>
+						{/each}
+					</div>
+				{/if}
+
+				{#if viewMode === 'authenticators'}
+					{#each filtered as account (account.id)}
+						{@const brand = getBrand(account.issuer)}
+						<div
+							class="account-row"
+							draggable="false"
+							in:fade|local={{ duration: 200, easing: cubicOut }}
+							out:slide|local={{ duration: 200, axis: 'y' }}
+							animate:flip={{ duration: 250, easing: cubicOut }}
+							onclick={() => {
+								quickIssuerChangeId = '';
+								copy(account.id, account.code);
+							}}
+							onkeydown={(e) => e.key === 'Enter' && copy(account.id, account.code)}
+							role="button"
+							tabindex="0"
+						>
+							<button
+								class="brand-icon"
+								onclick={(e) => {
+									e.stopPropagation();
+									quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
+								}}
+								title="Change issuer"
+							>
+								{#if brand.svg}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html brand.svg}
+								{:else}
+									{brand.letter}
+								{/if}
+							</button>
+							{#if quickIssuerChangeId === account.id}
+								<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
+									<IssuerPicker
+										selected={account.issuer}
+										onselect={(name) => quickChangeIssuer(account.id, name)}
+									/>
+								</div>
+							{/if}
+
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm text-on-surface">{account.issuer}: {account.name}</div>
+								<div class="code-text">{fmt(account.code)}</div>
+								{#if account.created_at}
+									<div class="text-xs text-on-surface-variant opacity-50">
+										{timeAgo(account.created_at)}
+									</div>
+								{/if}
+							</div>
+
+							<div class="row-actions">
+								<IconBtn
+									icon="edit"
+									label="Edit"
+									class="hover-action"
+									onclick={(e) => {
+										e.stopPropagation();
+										openEdit(account.id, account.issuer, account.name);
+									}}
+								/>
+								<IconBtn
+									icon="delete"
+									label="Delete"
+									class="hover-action del-btn"
+									onclick={(e) => {
+										e.stopPropagation();
+										deleteId = account.id;
+										showDelete = true;
+									}}
+								/>
+								<IconBtn
+									icon={copied === account.id ? 'check' : 'content_copy'}
+									label="Copy code"
+									class="copy-btn {copied === account.id ? 'copied' : ''}"
+									onclick={(e) => {
+										e.stopPropagation();
+										copy(account.id, account.code);
+									}}
+								/>
+							</div>
+						</div>
 					{/each}
-				</div>
-			{/if}
-
-			{#if viewMode === 'authenticators'}
-				{#each filtered as account (account.id)}
-					{@const brand = getBrand(account.issuer)}
-					<div
-						class="account-row"
-						draggable="false"
-						in:fade|local={{ duration: 200, easing: cubicOut }}
-						out:slide|local={{ duration: 200, axis: 'y' }}
-						animate:flip={{ duration: 250, easing: cubicOut }}
-						onclick={() => {
-							quickIssuerChangeId = '';
-							copy(account.id, account.code);
-						}}
-						onkeydown={(e) => e.key === 'Enter' && copy(account.id, account.code)}
-						role="button"
-						tabindex="0"
-					>
-						<button
-							class="brand-icon"
-							onclick={(e) => {
-								e.stopPropagation();
-								quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
-							}}
-							title="Change issuer"
+				{:else}
+					{#each filtered as account (account.id)}
+						{@const brand = getBrand(account.issuer)}
+						<div
+							class="account-row account-row-passive"
+							draggable="false"
+							in:fade|local={{ duration: 200, easing: cubicOut }}
+							out:slide|local={{ duration: 200, axis: 'y' }}
+							animate:flip={{ duration: 250, easing: cubicOut }}
 						>
-							{#if brand.svg}
-								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-								{@html brand.svg}
-							{:else}
-								{brand.letter}
-							{/if}
-						</button>
-						{#if quickIssuerChangeId === account.id}
-							<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
-								<IssuerPicker
-									selected={account.issuer}
-									onselect={(name) => quickChangeIssuer(account.id, name)}
-								/>
-							</div>
-						{/if}
-
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-sm text-on-surface">{account.issuer}: {account.name}</div>
-							<div class="code-text">{fmt(account.code)}</div>
-							{#if account.created_at}
-								<div class="text-xs text-on-surface-variant opacity-50">
-									{timeAgo(account.created_at)}
+							<button
+								class="brand-icon"
+								onclick={(e) => {
+									e.stopPropagation();
+									quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
+								}}
+								title="Change issuer"
+							>
+								{#if brand.svg}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html brand.svg}
+								{:else}
+									{brand.letter}
+								{/if}
+							</button>
+							{#if quickIssuerChangeId === account.id}
+								<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
+									<IssuerPicker
+										selected={account.issuer}
+										onselect={(name) => quickChangeIssuer(account.id, name)}
+									/>
 								</div>
 							{/if}
-						</div>
 
-						<div class="row-actions">
-							<IconBtn
-								icon="edit"
-								label="Edit"
-								class="hover-action"
-								onclick={(e) => {
-									e.stopPropagation();
-									openEdit(account.id, account.issuer, account.name);
-								}}
-							/>
-							<IconBtn
-								icon="delete"
-								label="Delete"
-								class="hover-action del-btn"
-								onclick={(e) => {
-									e.stopPropagation();
-									deleteId = account.id;
-									showDelete = true;
-								}}
-							/>
-							<IconBtn
-								icon={copied === account.id ? 'check' : 'content_copy'}
-								label="Copy code"
-								class="copy-btn {copied === account.id ? 'copied' : ''}"
-								onclick={(e) => {
-									e.stopPropagation();
-									copy(account.id, account.code);
-								}}
-							/>
-						</div>
-					</div>
-				{/each}
-			{:else}
-				{#each filtered as account (account.id)}
-					{@const brand = getBrand(account.issuer)}
-					<div
-						class="account-row account-row-passive"
-						draggable="false"
-						in:fade|local={{ duration: 200, easing: cubicOut }}
-						out:slide|local={{ duration: 200, axis: 'y' }}
-						animate:flip={{ duration: 250, easing: cubicOut }}
-					>
-						<button
-							class="brand-icon"
-							onclick={(e) => {
-								e.stopPropagation();
-								quickIssuerChangeId = quickIssuerChangeId === account.id ? '' : account.id;
-							}}
-							title="Change issuer"
-						>
-							{#if brand.svg}
-								<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-								{@html brand.svg}
-							{:else}
-								{brand.letter}
-							{/if}
-						</button>
-						{#if quickIssuerChangeId === account.id}
-							<div class="quick-picker" transition:slide={{ duration: 200, axis: 'y' }}>
-								<IssuerPicker
-									selected={account.issuer}
-									onselect={(name) => quickChangeIssuer(account.id, name)}
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm text-on-surface">{account.name}</div>
+								<div class="account-password">{account.password}</div>
+								{#if account.created_at}
+									<div class="text-xs text-on-surface-variant opacity-50">
+										{timeAgo(account.created_at)}
+									</div>
+								{/if}
+							</div>
+
+							<div class="row-actions row-actions-visible">
+								<IconBtn
+									icon="edit"
+									label="Edit"
+									class="hover-action"
+									onclick={(e) => {
+										e.stopPropagation();
+										openEdit(account.id, account.issuer, account.name);
+									}}
+								/>
+								<IconBtn
+									icon="delete"
+									label="Delete"
+									class="hover-action del-btn"
+									onclick={(e) => {
+										e.stopPropagation();
+										deleteId = account.id;
+										showDelete = true;
+									}}
+								/>
+								<IconBtn
+									icon={copied === account.id ? 'check' : 'content_copy'}
+									label="Copy password"
+									class="copy-btn {copied === account.id ? 'copied' : ''}"
+									onclick={(e) => {
+										e.stopPropagation();
+										copyPassword(account.id, account.password);
+									}}
 								/>
 							</div>
-						{/if}
-
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-sm text-on-surface">{account.name}</div>
-							<div class="account-password">{account.password}</div>
-							{#if account.created_at}
-								<div class="text-xs text-on-surface-variant opacity-50">
-									{timeAgo(account.created_at)}
-								</div>
-							{/if}
 						</div>
-
-						<div class="row-actions row-actions-visible">
-							<IconBtn
-								icon="edit"
-								label="Edit"
-								class="hover-action"
-								onclick={(e) => {
-									e.stopPropagation();
-									openEdit(account.id, account.issuer, account.name);
-								}}
-							/>
-							<IconBtn
-								icon="delete"
-								label="Delete"
-								class="hover-action del-btn"
-								onclick={(e) => {
-									e.stopPropagation();
-									deleteId = account.id;
-									showDelete = true;
-								}}
-							/>
-							<IconBtn
-								icon={copied === account.id ? 'check' : 'content_copy'}
-								label="Copy password"
-								class="copy-btn {copied === account.id ? 'copied' : ''}"
-								onclick={(e) => {
-									e.stopPropagation();
-									copyPassword(account.id, account.password);
-								}}
-							/>
-						</div>
-					</div>
-				{/each}
-			{/if}
+					{/each}
+				{/if}
 			{/if}
 		{/if}
 	</main>
@@ -858,7 +862,9 @@
 					/>
 					<label for="f-edit-secret">Secret key (base32, optional)</label>
 				</div>
-				<p class="dialog-body dialog-hint">Leave secret empty to keep this in the Accounts category.</p>
+				<p class="dialog-body dialog-hint">
+					Leave secret empty to keep this in the Accounts category.
+				</p>
 				{#if error}<p class="error-msg">{error}</p>{/if}
 				<div class="dialog-actions">
 					<button class="m3-btn-text" onclick={() => (showEdit = false)}>Cancel</button>
